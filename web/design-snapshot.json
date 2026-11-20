@@ -1,0 +1,25 @@
+{
+  "status": "preview",
+  "station": {
+    "id": "PUY",
+    "name": "Pully"
+  },
+  "observation": {
+    "observed_at": "2026-11-16T13:10:00Z",
+    "air_temperature_c": 11.5,
+    "relative_humidity_percent": 75.8,
+    "wind_speed_m_s": 2.388888888888889,
+    "solar_w_m2": 85.0,
+    "pressure_hpa": 959.8,
+    "wbgt_c": 10.431974411010742
+  },
+  "fetched_at": "2026-11-16T13:20:40Z",
+  "risk": {
+    "id": "low",
+    "label": "Low heat stress",
+    "level": 0
+  },
+  "message": null,
+  "mode": "design",
+  "captured_at": "2026-11-16T13:20:40Z"
+}

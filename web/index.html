@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f7f8f2" />
+    <meta name="description" content="Outdoor heat and weather instruments for Lausanne and Ouchy." />
+    <title>Lausanne / Ouchy · Outdoor conditions</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='7' fill='%23f7f8f2'/%3E%3Cpath d='M8 30a12 12 0 1 1 24 0M20 28l7-14' stroke='%23367450' stroke-width='3' fill='none'/%3E%3C/svg%3E" />
+    <link rel="preload" href="assets/fonts/jetbrains-mono-latin.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="assets/fonts/sofia-sans-extra-condensed-latin.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="stylesheet" href="styles.css" />
+    <script defer src="dashboard-data.js"></script>
+    <script defer src="gauges.js"></script>
+    <script defer src="temperature-field.js"></script>
+    <script defer src="weather-condition.js"></script>
+    <script defer src="map-temperature.js"></script>
+    <script defer src="illustrated-map.js"></script>
+    <script defer src="app.js"></script>
+  </head>
+  <body>
+    <svg class="icon-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <symbol id="icon-child" viewBox="0 0 24 24"><circle cx="12" cy="4" r="2"/><path d="m6 8 6 3 6-3M12 11v6m0 0-4 5m4-5 4 5"/></symbol>
+      <symbol id="icon-walk" viewBox="0 0 24 24"><circle cx="14" cy="3" r="2"/><path d="m7 10 4-4 4 5 5 1M12 8l-2 7 5 3 1 5M10 15l-4 7"/></symbol>
+      <symbol id="icon-senior" viewBox="0 0 24 24"><circle cx="11" cy="3" r="2"/><path d="m7 10 3-4 4 4 4 1M10 7v8l-4 7m4-7 4 7m5 0v-9a2 2 0 0 0-4 0"/></symbol>
+      <symbol id="icon-water" viewBox="0 0 24 24"><path d="M12 2S5 10 5 15a7 7 0 0 0 14 0c0-5-7-13-7-13Z"/><path d="M8 15a4 4 0 0 0 4 4"/></symbol>
+      <symbol id="icon-shade" viewBox="0 0 24 24"><path d="M3 11a9 9 0 0 1 18 0H3Zm9 0v8a3 3 0 0 0 6 0M12 2V1"/></symbol>
+      <symbol id="icon-rest" viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"/></symbol>
+      <symbol id="icon-stop" viewBox="0 0 24 24"><path d="m8 2-6 6v8l6 6h8l6-6V8l-6-6H8Z"/><path d="M7 12h10"/></symbol>
+      <symbol id="icon-wait" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 2"/></symbol>
+      <symbol id="icon-people" viewBox="0 0 24 24"><circle cx="9" cy="6" r="3"/><path d="M3 21v-3a6 6 0 0 1 12 0v3M16 4a3 3 0 0 1 0 6m3 11v-3a6 6 0 0 0-2-4"/></symbol>
+    </svg>
+
+    <main class="board" id="board" data-state="loading" aria-label="Lausanne and Ouchy outdoor conditions">
+      <div class="board-content">
+        <header class="masthead">
+          <div class="header-line"><h1>Lausanne <span>·</span> Ouchy</h1><time id="clock">—:—</time></div>
+          <p class="dateline" id="date">—</p>
+        </header>
+
+        <section class="weather-values" aria-label="Pully measurements and Ouchy modelled weather">
+          <div class="weather-metric"><h3><span class="weather-emoji" aria-hidden="true">🌡️</span>Air temperature</h3><p class="metric-reading"><span id="temperature-value">—</span><span class="metric-unit">°C</span></p></div>
+          <div class="weather-metric" id="weather-condition" role="group" aria-label="Ouchy modelled weather loading"><h3>Weather</h3><p class="metric-reading condition-reading"><span id="condition-icon" class="condition-symbol" aria-hidden="true">—</span></p></div>
+          <div class="weather-metric"><h3><span class="weather-emoji" aria-hidden="true">💧</span>Relative humidity</h3><p class="metric-reading"><span id="humidity-value">—</span><span class="metric-unit">%</span></p></div>
+          <div class="weather-metric"><h3><span class="weather-emoji" aria-hidden="true">💨</span>Wind at 10 m</h3><p class="metric-reading"><span id="wind-value">—</span><span class="metric-unit">km/h</span></p></div>
+        </section>
+
+        <section class="heat-panel" id="heat-panel" aria-labelledby="heat-heading">
+          <h2 class="sr-only" id="heat-heading">Estimated outdoor heat stress</h2>
+          <div class="main-dial" id="wbgt-gauge"></div>
+          <div class="heat-summary" aria-live="polite"><span class="risk-dot" aria-hidden="true"></span><h2 id="risk-label">Connecting</h2><span id="status-text" class="status-text">Pully reference</span></div>
+          <p id="heat-message" class="sr-only">Connecting to the latest Pully observation.</p>
+        </section>
+
+        <section class="guidance-section" aria-label="Activity recommendation">
+          <svg class="advice-icon icon" aria-hidden="true"><use id="recommendation-icon" href="#icon-water" /></svg>
+          <p id="recommendation">Keep water nearby and take regular drinking breaks.</p>
+        </section>
+
+        <section class="places-section illustrated-section" aria-labelledby="illustrated-scene-title">
+          <div class="places-heading">
+            <div class="illustrated-heading"><span id="illustrated-scene-icon" class="illustrated-heading-icons" aria-hidden="true"></span><h2 id="illustrated-scene-title" class="map-scene-title">WATER POINTS</h2></div>
+            <div id="map-scene-buttons" class="map-scene-buttons" role="group" aria-label="Choose a category"></div>
+          </div>
+          <div class="illustrated-map-frame" id="illustrated-map-frame">
+            <svg id="illustrated-map" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1190.574219 1246.480469" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Water points in Lausanne and Ouchy" aria-describedby="illustrated-map-description">
+              <desc id="illustrated-map-description">Illustrated reference map. One category is shown at a time.</desc>
+            </svg>
+            <aside id="map-temperature-legend" class="map-temperature-legend" aria-label="Modelled air temperature scale" hidden>
+              <p id="map-temperature-notice" class="map-temperature-notice" role="status">Loading map temperatures…</p>
+              <div id="map-temperature-scale" class="map-temperature-thermometer" hidden>
+                <svg id="map-temperature-gradient" class="map-temperature-gradient" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 44 208" role="img" aria-label="Temperature colour scale">
+                  <defs><linearGradient id="map-temperature-key-colours" gradientUnits="userSpaceOnUse" x1="0" y1="160" x2="0" y2="42"></linearGradient></defs>
+                  <path d="M11.2 173.925V15a10.8 10.8 0 0 1 21.6 0v158.925a16.2 16.2 0 1 1-21.6 0Z" fill="url(#map-temperature-key-colours)" class="map-temperature-outline" />
+                  <circle cx="17" cy="182" r="3" fill="#ffffff" opacity=".22" aria-hidden="true" />
+                </svg>
+                <p class="map-temperature-heading"><span class="sr-only">Modelled air temperature in </span>°C</p>
+                <div class="map-temperature-ticks" aria-hidden="true"></div>
+              </div>
+            </aside>
+            <p id="map-temperature-attribution" class="map-temperature-source" hidden><a href="https://open-meteo.com/" target="_blank" rel="noopener noreferrer">Open-Meteo</a><span> · </span><a href="https://www.meteoswiss.admin.ch/" target="_blank" rel="noopener noreferrer">MeteoSwiss</a><span> · ~1 km</span></p>
+            <p id="illustrated-map-status" class="illustrated-map-status" role="status">Loading the map…</p>
+          </div>
+        </section>
+
+        <footer class="footer" aria-hidden="true" inert>
+          <div class="status-row"><span id="observation-note" class="observation-note">Weather update unavailable</span><span id="pedestrian-status">Pedestrian counter not connected</span></div>
+          <div class="footer-credits"><span>SEPS · VAUD</span><span class="sources"><a href="https://www.meteoswiss.admin.ch/" target="_blank" rel="noopener noreferrer">MeteoSwiss</a><span id="map-temperature-credit" class="map-temperature-credit" hidden><span> · </span><a href="https://open-meteo.com/" target="_blank" rel="noopener noreferrer">Open-Meteo</a></span><span>·</span><a href="https://www.wbgt.env.go.jp/en/wbgt.php" target="_blank" rel="noopener noreferrer">WBGT</a><span>·</span><a href="https://www.vd.ch/sante-soins-et-handicap/prevention-et-maladies/chaleur-et-canicule/conseils-pour-toute-la-population" target="_blank" rel="noopener noreferrer">Vaud</a></span></div>
+          <div id="map-credits" class="map-credits">Cool spaces map 2026 · City of Lausanne</div>
+        </footer>
+      </div>
+    </main>
+    <noscript>Enable JavaScript to show current conditions.</noscript>
+  </body>
+</html>
