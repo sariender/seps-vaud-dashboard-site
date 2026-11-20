@@ -11,13 +11,14 @@ const dataSource = fs.readFileSync(path.join(__dirname, "../web/dashboard-data.j
 const savedPreview = JSON.parse(fs.readFileSync(path.join(__dirname, "../web/design-snapshot.json"), "utf8"));
 const response = data => ({ ok: true, json: async () => data });
 
-async function startDashboard(respond, { baseURI = "https://dashboard.test/", delivery } = {}) {
+async function startDashboard(respond, { baseURI = "https://dashboard.test/", delivery, frozenAt, now = Date.now() } = {}) {
   const elements = new Map();
   const requests = [];
   const timeouts = [];
   const intervals = [];
   const listeners = [];
   const gaugeValues = [];
+  const clock = { now };
   const element = id => {
     if (!elements.has(id)) elements.set(id, {
       textContent: "", dataset: {}, attributes: {}, style: { setProperty() {} },
@@ -28,9 +29,10 @@ async function startDashboard(respond, { baseURI = "https://dashboard.test/", de
   };
   const context = {
     document: { getElementById: element, addEventListener: (...args) => listeners.push(args), hidden: false,
-      baseURI, documentElement: { dataset: { delivery } } },
+      baseURI, documentElement: { dataset: { delivery, frozenAt } } },
     window: { addEventListener: (...args) => listeners.push(args) },
     URL,
+    Date: class extends Date { static now() { return clock.now; } },
     DialGauge: class { setValue(value) { gaugeValues.push(value); } },
     fetch: async url => {
       const pathname = new URL(url, baseURI).pathname;
@@ -45,7 +47,7 @@ async function startDashboard(respond, { baseURI = "https://dashboard.test/", de
   vm.runInContext(dataSource, sandbox, { filename: "dashboard-data.js" });
   await vm.runInContext(appSource, sandbox, { filename: "app.js" });
   await new Promise(setImmediate);
-  return { element, requests, timeouts, intervals, listeners, gaugeValues };
+  return { element, requests, timeouts, intervals, listeners, gaugeValues, advance: ms => { clock.now += ms; } };
 }
 
 test("failed or malformed configuration never loads saved observations", async t => {
@@ -72,6 +74,49 @@ test("failed or malformed configuration never loads saved observations", async t
     assert.equal(page.intervals.length, 0);
     assert.equal(page.listeners.length, 0);
   });
+});
+
+test("a frozen weather export loads once and preserves capture time on a next-day reload", async () => {
+  const frozenAt = "2026-11-20T15:20:00Z";
+  const captured = Date.parse(frozenAt);
+  const weather = { ...savedPreview, mode: "live", status: "live", frozen_at: frozenAt,
+    fetched_at: frozenAt, valid_until: new Date(captured + 3680_000).toISOString(),
+    expires_at: new Date(captured + 7_200_000).toISOString(),
+    observation: { ...savedPreview.observation, observed_at: "2026-11-20T15:10:00Z" } };
+  const config = { mode: "frozen", frozen_at: frozenAt, water_updates: "frozen", heat_updates: "frozen" };
+  for (const now of [captured, captured + 86_400_000]) {
+    const page = await startDashboard(url => response(url.endsWith("config.json") ? config : weather),
+      { delivery: "static", frozenAt, now });
+    assert.deepEqual(page.requests, ["/api/config.json", "/api/weather.json"]);
+    assert.equal(page.element("board").dataset.mode, "frozen");
+    assert.equal(page.element("board").dataset.state, "live");
+    assert.equal(page.element("temperature-value").textContent, weather.observation.air_temperature_c.toFixed(1));
+    assert.equal(page.element("clock").textContent, "16:20");
+    assert.equal(page.element("status-text").textContent, "Snapshot");
+    page.advance(86_400_000);
+    assert.equal(page.element("clock").textContent, "16:20");
+    assert.deepEqual(page.intervals, []);
+    assert.deepEqual(page.timeouts, []);
+    assert.deepEqual(page.listeners, []);
+  }
+});
+
+test("frozen configuration and payload mismatches fail closed without retries", async () => {
+  const frozenAt = "2026-11-20T15:20:00Z";
+  const config = { mode: "frozen", frozen_at: frozenAt, water_updates: "frozen", heat_updates: "frozen" };
+  for (const change of ["config stamp", "config mode", "payload stamp"]) {
+    const badConfig = { ...config, ...(change === "config stamp" ? { frozen_at: "2026-11-20T14:20:00Z" }
+      : change === "config mode" ? { mode: "live" } : {}) };
+    const weather = { ...savedPreview, mode: "live", status: "live", frozen_at: "2026-11-20T14:20:00Z",
+      fetched_at: frozenAt, valid_until: "2026-11-20T16:21:20Z", expires_at: "2026-11-20T17:20:00Z",
+      observation: { ...savedPreview.observation, observed_at: "2026-11-20T15:10:00Z" } };
+    const page = await startDashboard(url => response(url.endsWith("config.json") ? badConfig : weather),
+      { delivery: "static", frozenAt, now: Date.parse(frozenAt) });
+    assert.equal(page.element("temperature-value").textContent, "—", change);
+    assert.equal(page.gaugeValues.at(-1), null, change);
+    assert.equal(page.intervals.length + page.timeouts.length + page.listeners.length, 0, change);
+    assert.equal(page.requests.length, change === "payload stamp" ? 2 : 1, change);
+  }
 });
 
 test("the actual saved preview remains available after confirmed design configuration", async () => {

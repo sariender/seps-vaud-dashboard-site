@@ -20,6 +20,7 @@ from scripts.build_pages import PUBLIC_WEB_FILES
 CORE_FILES = (
     "README.md", "LICENSE", ".python-version", "requirements.txt", "run.py",
     "server.py", "water_service.py", "heat_service.py",
+    "data/dashboard-frozen.json",
     "scripts/build_pages.py", "scripts/prepare_pages_repository.py",
     "deploy/github-pages/pages.yml", "deploy/github-pages/README.md",
     "tests/test_server.py", "tests/test_weather.py", "tests/test_live_water.py",
@@ -27,6 +28,7 @@ CORE_FILES = (
     "tests/test_pages_repository.py", "tests/test_temperature_field.cjs",
     "tests/test_weather_condition.cjs", "tests/test_dashboard_startup.cjs",
     "tests/test_dashboard_data.cjs", "tests/test_water_startup.cjs",
+    "tests/test_frozen_map.cjs",
     # This saved public weather fixture supports explicit local design mode
     # and existing regression tests. build_pages excludes it from the website.
     "web/design-snapshot.json",

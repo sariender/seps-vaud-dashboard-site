@@ -25,7 +25,10 @@
     return type ? { label: type[0], icon: !isDay && type[1] === "🌦️" ? "🌧️" : type[1] } : null;
   }
 
-  function select(payload, now = Date.now()) {
+  function select(payload, now) {
+    const data = root.DashboardData;
+    if (data?.isFrozen && !data.matchesFrozen(payload)) return null;
+    if (now === undefined) now = data?.isFrozen ? data.now() : Date.now();
     const condition = payload?.conditions;
     if (payload?.mode !== "live" || payload.status !== "live" || !condition) return null;
     const valid = Date.parse(payload.valid_at), fetched = Date.parse(payload.fetched_at);
@@ -62,9 +65,10 @@
       timeZone: "Europe/Zurich", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
     }).format(new Date(weather.valid_at));
     byId("condition-icon").textContent = weather.icon;
+    const updateDescription = root.DashboardData?.isFrozen ? `snapshot captured ${root.DashboardData.frozenAt}` : "checked hourly";
     byId("weather-condition").setAttribute("aria-label",
-      `Ouchy modelled weather: ${weather.label}. Forecast valid ${time} Europe/Zurich. Open-Meteo, MeteoSwiss ICON CH1; checked hourly.`);
-    state = { status: payload.message ? "delayed" : "live", condition: weather };
+      `Ouchy modelled weather: ${weather.label}. Forecast valid ${time} Europe/Zurich. Open-Meteo, MeteoSwiss ICON CH1; ${updateDescription}.`);
+    state = { status: root.DashboardData?.isFrozen ? "frozen" : payload.message ? "delayed" : "live", condition: weather };
   }
 
   function delayed() {
@@ -83,7 +87,9 @@
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else {
     root.WeatherCondition = api;
-    setInterval(expire, 15_000);
-    root.document.addEventListener("visibilitychange", expire);
+    if (!root.DashboardData?.isFrozen) {
+      setInterval(expire, 15_000);
+      root.document.addEventListener("visibilitychange", expire);
+    }
   }
 })(typeof window !== "undefined" ? window : globalThis);

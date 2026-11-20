@@ -9,8 +9,8 @@ const source = fs.readFileSync(path.join(__dirname, "../web/dashboard-data.js"),
 
 const NOW = 1_800_000_000_000;
 
-function endpoints(baseURI, delivery, now = () => NOW) {
-  const context = { URL, Date: { now }, document: { baseURI, documentElement: { dataset: { delivery } } } };
+function endpoints(baseURI, delivery, now = () => NOW, frozenAt) {
+  const context = { URL, Date: { now, parse: Date.parse }, document: { baseURI, documentElement: { dataset: { delivery, frozenAt } } } };
   vm.runInNewContext(source, context);
   return context.DashboardData;
 }
@@ -23,6 +23,34 @@ test("static endpoints stay beneath the GitHub Pages project path", () => {
       assert.equal(data.api(name), `https://sariender.github.io/seps-vaud-dashboard-site/api/${name}.json?v=${Math.floor(NOW / 60_000)}`);
     }
     assert.ok(Object.isFrozen(data));
+  }
+});
+
+test("an explicit frozen export keeps its capture clock and distinct cache key across reloads", () => {
+  const frozenAt = "2026-11-20T15:20:00Z";
+  const first = endpoints("https://example.com/dashboard/", "static", () => NOW, frozenAt);
+  const tomorrow = endpoints("https://example.com/dashboard/", "static", () => NOW + 86_400_000, frozenAt);
+  for (const data of [first, tomorrow]) {
+    assert.equal(data.isFrozen, true);
+    assert.equal(data.frozenAt, frozenAt);
+    assert.equal(data.now(), Date.parse(frozenAt));
+    assert.equal(new URL(data.api("weather")).searchParams.get("v"), `frozen-${frozenAt}`);
+    assert.equal(data.matchesFrozen({ frozen_at: frozenAt }), false);
+    assert.equal(data.acceptConfig({ mode: "frozen", frozen_at: frozenAt, water_updates: "frozen", heat_updates: "frozen" }), true);
+    assert.equal(data.matchesFrozen({ frozen_at: frozenAt }), true);
+    assert.equal(data.matchesFrozen({ frozen_at: "2026-11-20T14:20:00Z" }), false);
+    assert.equal(data.acceptConfig({ mode: "frozen", frozen_at: "2026-11-20T14:20:00Z", water_updates: "frozen", heat_updates: "frozen" }), false);
+    assert.equal(data.matchesFrozen({ frozen_at: frozenAt }), false);
+  }
+});
+
+test("invalid or non-static capture markers never authorize frozen data", () => {
+  for (const [delivery, frozenAt] of [["static", "bad"], ["static", "1"], ["static", "2026-13-20T15:20:00Z"], ["dynamic", "2026-11-20T15:20:00Z"]]) {
+    const data = endpoints("https://example.com/", delivery, () => NOW, frozenAt);
+    assert.equal(data.isFrozen, false);
+    assert.equal(data.frozenAt, null);
+    assert.equal(data.now(), NOW);
+    assert.equal(data.acceptConfig({ mode: "frozen", frozen_at: frozenAt, water_updates: "frozen", heat_updates: "frozen" }), false);
   }
 });
 

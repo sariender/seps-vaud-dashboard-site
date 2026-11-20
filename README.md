@@ -2,6 +2,9 @@
 
 Portrait dashboard for Lausanne and Ouchy, designed for a 57 × 96.5 cm screen.
 
+- **Current mode: frozen at 16:11 on 20 November 2026 (Europe/Zurich)** for design review. The clock and data use one [saved capture](data/dashboard-frozen.json).
+- Automatic updates and category rotation are off. Category buttons still work. The live update rules below apply when live mode is resumed.
+
 ## Header
 
 - Europe/Zurich date and time; clock updates every second.
@@ -41,7 +44,7 @@ Portrait dashboard for Lausanne and Ouchy, designed for a 57 × 96.5 cm screen.
 - Check the [Lausanne register](https://map.lausanne.ch/) hourly. Show **potable, open** points within calibrated map coverage; exclude showers.
 - Illustrated positions are approximate; links open City map locations. Register status does not confirm water flow.
 
-## Update rules
+## Live update rules
 
 - GitHub Pages: an hourly GitHub Actions job fetches data and publishes JSON snapshots. The browser reads these every minute; updates create no Git commits.
 - Local Python server: fetch at startup, then hourly. Browser checks cached data every minute.

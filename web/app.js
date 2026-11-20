@@ -37,7 +37,7 @@ const guidance = {
   danger: ["Stop outdoor exercise and move to a cooler place.", "stop"],
 };
 
-function updateClock(now = new Date()) {
+function updateClock(now = new Date(DashboardData.isFrozen ? DashboardData.now() : Date.now())) {
   $("clock").textContent = new Intl.DateTimeFormat("en-GB", {
     timeZone: ZONE, hour: "2-digit", minute: "2-digit", hourCycle: "h23",
   }).format(now);
@@ -63,21 +63,24 @@ function renderNumericValue(id, value) {
 
 function renderWeather(data) {
   const preview = displayMode === "design" && data.mode === "design";
+  const snapshot = displayMode === "frozen" && DashboardData.matchesFrozen(data);
+  const now = snapshot ? DashboardData.now() : Date.now();
   const observation = data.observation;
   const observedAt = observation ? new Date(observation.observed_at) : null;
   const validTime = observedAt && Number.isFinite(observedAt.getTime());
-  const ageMs = validTime ? Date.now() - observedAt.getTime() : Infinity;
+  const ageMs = validTime ? now - observedAt.getTime() : Infinity;
   const checkedAt = Date.parse(data.fetched_at);
   const sourceAgeAtCheck = validTime ? checkedAt - observedAt.getTime() : Infinity;
   const validUntil = Date.parse(data.valid_until);
   const expiresAt = Date.parse(data.expires_at);
-  const fresh = preview || (data.status === "live" && ageMs >= 0 && checkedAt <= Date.now()
+  const fresh = preview || ((!DashboardData.isFrozen || snapshot) && data.mode === "live"
+    && data.status === "live" && ageMs >= 0 && checkedAt <= now
     && sourceAgeAtCheck >= 0 && sourceAgeAtCheck <= MAX_SOURCE_AGE_AT_CHECK_MS
-    && Number.isFinite(validUntil) && Date.now() <= validUntil);
+    && Number.isFinite(validUntil) && now <= validUntil);
   const risk = fresh && Number.isFinite(observation?.wbgt_c) && riskStyles[data.risk?.id] ? data.risk : null;
   let state = preview ? "preview" : (data.status || "unavailable");
   if (state === "live" && !risk) {
-    state = ageMs >= 0 && Number.isFinite(expiresAt) && Date.now() <= expiresAt ? "stale" : "unavailable";
+    state = ageMs >= 0 && Number.isFinite(expiresAt) && now <= expiresAt ? "stale" : "unavailable";
   }
   board.dataset.state = state;
 
@@ -92,7 +95,7 @@ function renderWeather(data) {
     board.style.setProperty("--accent", style.color);
     $("risk-label").textContent = style.label;
     $("risk-label").setAttribute("aria-label", `${risk.label}: environmental heat stress`);
-    $("status-text").textContent = preview ? "WBGT estimate" : (data.message ? "Retrying update" : "Hourly estimate");
+    $("status-text").textContent = snapshot ? "Snapshot" : preview ? "WBGT estimate" : (data.message ? "Retrying update" : "Hourly estimate");
     const [recommendation, icon] = guidance[risk.id];
     $("heat-message").textContent = `${risk.label}. ${recommendation}`;
     $("recommendation").textContent = recommendation;
@@ -132,7 +135,7 @@ function renderWeather(data) {
 }
 
 async function fetchWeather() {
-  if (displayMode !== "live" || weatherRequestInFlight) return;
+  if (!["live", "frozen"].includes(displayMode) || weatherRequestInFlight) return;
   weatherRequestInFlight = true;
   try {
     const response = await fetch(DashboardData.api("weather"), { cache: "no-store", signal: AbortSignal.timeout(12_000) });
@@ -162,7 +165,7 @@ async function initializeDashboard() {
     const response = await fetch(DashboardData.api("config"), { cache: "no-store", signal: AbortSignal.timeout(10_000) });
     if (!response.ok) throw new Error("Dashboard configuration unavailable");
     const config = await response.json();
-    if (!["live", "design"].includes(config.mode)) throw new Error("Invalid dashboard mode");
+    if (!DashboardData.acceptConfig(config)) throw new Error("Invalid dashboard mode");
     displayMode = config.mode;
     if (Number.isFinite(config.weather_poll_seconds) && config.weather_poll_seconds > 0) {
       weatherPollMs = config.weather_poll_seconds * 1_000;
@@ -172,10 +175,16 @@ async function initializeDashboard() {
     board.dataset.mode = displayMode;
     updateClock();
     renderWeather({ status: "unavailable", observation: null, risk: null });
-    setTimeout(initializeDashboard, 60_000);
+    if (!DashboardData.isFrozen) setTimeout(initializeDashboard, 60_000);
     return;
   }
   board.dataset.mode = displayMode;
+
+  if (displayMode === "frozen") {
+    updateClock();
+    await fetchWeather();
+    return;
+  }
 
   if (displayMode === "design") {
     try {

@@ -1,10 +1,11 @@
 # GitHub Pages
 
-- Public website source: `sariender/seps-vaud-dashboard-site`. The original repository stays private.
-- `scripts/prepare_pages_repository.py --output <empty-directory>` copies only the reviewed website source and workflow into a fresh checkout. It copies no Git history, archive, notebooks, research data, local caches or credentials.
-- The public workflow runs at minute 32 of each hour (UTC), on pushes to `main`, or through **Actions → Dashboard → Run workflow**.
-- Each run checks the code, fetches the three live data sources and publishes `_site/` as a Pages artifact. Data updates create no Git commits.
-- A failed source publishes an unavailable snapshot for that source. The others can still update. Existing expiry checks stay in effect; delayed jobs can cause short periods without fresh readings.
-- GitHub may disable scheduled workflows in public repositories after 60 days without repository activity. Re-enable **Dashboard** in Actions if this happens. [GitHub schedule rules](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule).
-- To edit the dashboard, work in the original checkout, run the tests, prepare the public copy, review its changes and push as `sariender`.
-- To move to the original private repository after upgrading: copy `pages.yml` into `.github/workflows/pages.yml`, change its repository condition to the target repository, and enable **Settings → Pages → GitHub Actions**. Relative URLs work under either repository path.
+- Public website: https://sariender.github.io/seps-vaud-dashboard-site/. The original project repository stays private.
+- The current website is frozen for design review. Its clock, weather, WBGT, map temperatures and water points use `data/dashboard-frozen.json`.
+- Scheduled data updates and automatic category rotation are off. Category buttons still work.
+- Build the saved version without contacting data providers: `python scripts/build_pages.py --frozen data/dashboard-frozen.json --output _site`.
+- Pushes to `main` and **Actions → Dashboard → Run workflow** publish the same saved data; they do not refresh it.
+- To deliberately replace the snapshot, run `python scripts/build_pages.py --capture-frozen data/dashboard-frozen.json`. Capture succeeds only when all three sources return valid current data.
+- `python scripts/prepare_pages_repository.py --output <empty-directory>` prepares the reviewed public source. It copies no private Git history, archive, research files or local caches.
+- Work in the original project, prepare the public copy, review its changes and push as `sariender`.
+- To resume live updates later, use the build command without `--frozen`, restore a schedule and verify an actual scheduled run. The previous hourly GitHub trigger did not run reliably.

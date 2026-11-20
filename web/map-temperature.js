@@ -129,7 +129,8 @@
   }
 
   function isCurrent(payload) {
-    const now = Date.now();
+    if (DashboardData.isFrozen && !DashboardData.matchesFrozen(payload)) return false;
+    const now = DashboardData.isFrozen ? DashboardData.now() : Date.now();
     return payload && Date.parse(payload.valid_at) <= now
       && Date.parse(payload.fetched_at) <= now + 1000 && now <= Date.parse(payload.valid_until);
   }
@@ -192,7 +193,8 @@
     }));
     const labelLength = Math.max(...values.map(value => numberFormat.format(value).length));
     byId("map-temperature-legend").style.setProperty("--key-label-width", `${labelLength + .2}ch`);
-    byId("map-temperature-legend").setAttribute("aria-description", `Modelled air temperature at 2 m, valid ${new Date(lastGood.valid_at).toLocaleString("en-GB", { timeZone: "Europe/Zurich" })}. MeteoSwiss ICON CH1 via Open-Meteo, approximately 1 km resolution. Updated hourly; colours use a local Celsius scale. Smooth interpolation adds no street-level detail. Illustrated alignment is approximate.`);
+    const updateDescription = DashboardData.isFrozen ? `Snapshot captured ${DashboardData.frozenAt}` : "Updated hourly";
+    byId("map-temperature-legend").setAttribute("aria-description", `Modelled air temperature at 2 m, valid ${new Date(lastGood.valid_at).toLocaleString("en-GB", { timeZone: "Europe/Zurich" })}. MeteoSwiss ICON CH1 via Open-Meteo, approximately 1 km resolution. ${updateDescription}; colours use a local Celsius scale. Smooth interpolation adds no street-level detail. Illustrated alignment is approximate.`);
     byId("map-temperature-gradient").setAttribute("aria-label", `Modelled air temperature: ${numberFormat.format(low)} to ${numberFormat.format(high)} degrees Celsius`);
     state = { ...state, valid_at: lastGood.valid_at, fetched_at: lastGood.fetched_at,
       valid_until: lastGood.valid_until, sampleCount: lastGood.points.length,
@@ -202,11 +204,12 @@
   }
 
   function validate(payload) {
-    const now = Date.now();
+    if (DashboardData.isFrozen && !DashboardData.matchesFrozen(payload)) throw new Error("The map snapshot does not match this dashboard.");
+    const now = DashboardData.isFrozen ? DashboardData.now() : Date.now();
     const valid = Date.parse(payload.valid_at);
     const fetched = Date.parse(payload.fetched_at);
     const until = Date.parse(payload.valid_until);
-    if (payload.unit !== "°C" || payload.variable !== "temperature_2m"
+    if (payload.mode !== "live" || payload.unit !== "°C" || payload.variable !== "temperature_2m"
         || ![valid, fetched, until].every(Number.isFinite)
         || valid > now || fetched > now + 1000 || fetched < valid || fetched - valid > 70 * 60_000
         || until <= fetched || until - fetched > 3680_000
@@ -232,6 +235,10 @@
     let loading = false;
     let responseReceived = false;
     try {
+      if (DashboardData.isFrozen) {
+        const config = await read(DashboardData.api("config"));
+        if (!DashboardData.acceptConfig(config)) throw new Error("The frozen map configuration is invalid.");
+      }
       const payload = await read(DashboardData.api("map-temperature"));
       responseReceived = true;
       window.WeatherCondition?.apply(payload);
@@ -246,7 +253,7 @@
         if (!isCurrent(payload)) throw new Error("The numeric map temperatures have expired.");
         await prepareArtwork();
         lastGood = payload;
-        state = { ...state, status: payload.message ? "delayed" : "live", error: payload.message || null };
+        state = { ...state, status: DashboardData.isFrozen ? "frozen" : payload.message ? "delayed" : "live", error: payload.message || null };
         renderSafely();
       } else if (payload.status === "loading") {
         loading = true;
@@ -262,7 +269,7 @@
     } finally {
       polling = false;
       expire();
-      setTimeout(poll, loading ? 2000 : POLL_MS);
+      if (!DashboardData.isFrozen) setTimeout(poll, loading ? 2000 : POLL_MS);
     }
   }
 
@@ -276,8 +283,10 @@
       clearTimeout(resizeTimer);
       resizeTimer = setTimeout(renderSafely, 80);
     }).observe(byId("illustrated-map-frame"));
-    setInterval(expire, 15_000);
-    document.addEventListener("visibilitychange", expire);
+    if (!DashboardData.isFrozen) {
+      setInterval(expire, 15_000);
+      document.addEventListener("visibilitychange", expire);
+    }
   }
 
   window.MapTemperature = Object.freeze({ initialize, getState: () => ({ ...state }) });

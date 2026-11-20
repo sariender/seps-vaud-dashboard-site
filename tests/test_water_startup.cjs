@@ -37,7 +37,7 @@ class Element {
   getBoundingClientRect() { return { width: 0, height: 0 }; }
 }
 
-async function start({ config, water, delivery = "static", now = Date.now() }) {
+async function start({ config, water, delivery = "static", now = Date.now(), frozenAt }) {
   const elements = new Map();
   const requests = [];
   const timeouts = [];
@@ -47,7 +47,7 @@ async function start({ config, water, delivery = "static", now = Date.now() }) {
   const clock = { now };
   const baseURI = "https://sariender.github.io/seps-vaud-dashboard-site/";
   const document = {
-    baseURI, documentElement: { dataset: { delivery } }, hidden: false,
+    baseURI, documentElement: { dataset: { delivery, frozenAt } }, hidden: false,
     addEventListener: (name, callback) => documentListeners.set(name, callback),
     getElementById(id) {
       if (!elements.has(id)) elements.set(id, new Element());
@@ -85,7 +85,8 @@ async function start({ config, water, delivery = "static", now = Date.now() }) {
     select: id => context.window.IllustratedMap.setScene(id),
     advance: ms => { clock.now += ms; },
     focus: () => windowListeners.get("focus")(),
-    visibility: hidden => { document.hidden = hidden; documentListeners.get("visibilitychange")(); } };
+    visibility: hidden => { document.hidden = hidden; documentListeners.get("visibilitychange")(); },
+    listenerCount: () => documentListeners.size + windowListeners.size };
 }
 
 test("a Pages configuration failure never displays saved water markers", async () => {
@@ -97,6 +98,41 @@ test("a Pages configuration failure never displays saved water markers", async (
   assert.equal(page.state().water.mode, "live");
   assert.ok(page.timeouts.some(timer => timer.ms === 60_000));
   assert.ok(!page.requests.some(url => url.endsWith("water-points.json")));
+});
+
+test("frozen water markers survive next-day reload and manual scenes without any timers", async () => {
+  const frozenAt = "2026-11-20T15:20:00Z";
+  const config = { mode: "frozen", frozen_at: frozenAt, water_updates: "frozen", heat_updates: "frozen" };
+  const water = { mode: "live", status: "current", frozen_at: frozenAt, checked_at: "2026-11-20T15:19:00Z",
+    points: [saved.scenes[0].points[0]], max_age_seconds: 3680 };
+  for (const now of [Date.parse(frozenAt), Date.parse(frozenAt) + 86_400_000]) {
+    const page = await start({ config, water, frozenAt, now });
+    assert.equal(page.state().pointCount, 1);
+    assert.equal(page.state().water.mode, "frozen");
+    assert.equal(page.state().rotationMs, 0);
+    page.select("exterieurs");
+    page.advance(86_400_000);
+    assert.equal(page.state().sceneId, "exterieurs");
+    page.select("points_eau");
+    assert.equal(page.state().pointCount, 1);
+    assert.equal(page.state().water.checked_at, water.checked_at);
+    assert.equal(page.timeouts.length + page.intervals.length + page.listenerCount(), 0);
+    assert.equal(page.requests.filter(url => url.endsWith("water-points.json")).length, 1);
+  }
+});
+
+test("frozen water mismatches never restore historical markers or start recovery", async () => {
+  const frozenAt = "2026-11-20T15:20:00Z";
+  for (const mismatch of ["config", "payload"]) {
+    const page = await start({ frozenAt, now: Date.parse(frozenAt),
+      config: { mode: "frozen", frozen_at: mismatch === "config" ? "2026-11-20T14:20:00Z" : frozenAt,
+        water_updates: "frozen", heat_updates: "frozen" },
+      water: { mode: "live", status: "current", frozen_at: "2026-11-20T14:20:00Z", checked_at: frozenAt,
+        points: [saved.scenes[0].points[0]], max_age_seconds: 3680 } });
+    assert.equal(page.state().pointCount, 0, mismatch);
+    assert.equal(page.timeouts.length + page.intervals.length + page.listenerCount(), 0, mismatch);
+    assert.equal(page.requests.filter(url => url.endsWith("water-points.json")).length, mismatch === "config" ? 0 : 1);
+  }
 });
 
 test("only confirmed local design mode may show saved water markers", async () => {

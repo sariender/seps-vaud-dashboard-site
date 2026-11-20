@@ -177,7 +177,9 @@
       snapshot: "City water · locations approximate",
     };
     credit.textContent = labels[waterState.status];
-    const details = waterState.mode === "live"
+    const details = waterState.mode === "frozen"
+      ? `Snapshot captured ${DashboardData.frozenAt}. City register last checked ${checkedLabel(waterState.checked_at, true)}. Only stations listed potable and open at that check are shown. Illustrated positions are approximate.`
+      : waterState.mode === "live"
       ? `City register last checked ${checkedLabel(waterState.checked_at, true)}. Only stations listed potable and open are shown. Checks repeat every ${waterRefreshSeconds === 3600 ? "hour" : `${Math.round(waterRefreshSeconds / 60)} minutes`}; this is register status, not a water-flow sensor. Illustrated positions are approximate.`
       : `Saved City register checked ${checkedLabel(manifest.water_source?.captured_at, true)}. Illustrated positions are approximate.`;
     credit.title = details;
@@ -198,7 +200,8 @@
   }
 
   function expireWater() {
-    const age = Date.now() - Date.parse(waterState.checked_at);
+    const now = waterState.mode === "frozen" && DashboardData.matchesFrozen(waterState) ? DashboardData.now() : Date.now();
+    const age = now - Date.parse(waterState.checked_at);
     if (!Number.isFinite(age) || age > waterMaxAgeMs || age < -5 * 60_000) {
       waterState.status = "unavailable";
       replaceWaterPoints([]);
@@ -219,6 +222,7 @@
   }
 
   function applyWater(payload) {
+    if (DashboardData.isFrozen && !DashboardData.matchesFrozen(payload)) throw new Error("The water snapshot does not match this dashboard.");
     const emptyUnavailable = payload.status === "unavailable" && payload.checked_at === null
       && Array.isArray(payload.points) && payload.points.length === 0;
     if (payload.mode !== "live" || !["current", "saved", "delayed", "unavailable", "loading"].includes(payload.status)
@@ -230,7 +234,8 @@
     validate({ ...manifest, scenes: manifest.scenes.map((scene, index) => index === 0 ? { ...scene, points: payload.points } : scene) });
     if (Number.isFinite(payload.refresh_seconds) && payload.refresh_seconds > 0) waterRefreshSeconds = payload.refresh_seconds;
     if (Number.isFinite(payload.max_age_seconds) && payload.max_age_seconds > 0) waterMaxAgeMs = payload.max_age_seconds * 1000;
-    waterState = { mode: "live", status: payload.status, checked_at: payload.checked_at,
+    waterState = { mode: DashboardData.isFrozen ? "frozen" : "live", status: payload.status, checked_at: payload.checked_at,
+      frozen_at: DashboardData.isFrozen ? payload.frozen_at : undefined,
       last_attempt_at: payload.last_attempt_at, updating: Boolean(payload.updating),
       refresh_seconds: waterRefreshSeconds, max_age_seconds: waterMaxAgeMs / 1000 };
     replaceWaterPoints(payload.points);
@@ -255,7 +260,7 @@
       showScene(sceneIndex);
     } finally {
       waterPolling = false;
-      waterPollTimer = setTimeout(pollWater, waterState.updating ? 2_000 : WATER_POLL_MS);
+      if (!DashboardData.isFrozen) waterPollTimer = setTimeout(pollWater, waterState.updating ? 2_000 : WATER_POLL_MS);
     }
   }
 
@@ -264,6 +269,15 @@
       const response = await fetch(DashboardData.api("config"), { cache: "no-store", signal: AbortSignal.timeout(10_000) });
       if (!response.ok) throw new Error("The dashboard configuration is unavailable.");
       const config = await response.json();
+      if (DashboardData.isFrozen) {
+        if (!DashboardData.acceptConfig(config)) throw new Error("Invalid frozen water configuration.");
+        if (Number.isFinite(config.water_refresh_seconds) && config.water_refresh_seconds > 0) waterRefreshSeconds = config.water_refresh_seconds;
+        if (Number.isFinite(config.water_max_age_seconds) && config.water_max_age_seconds > 0) waterMaxAgeMs = config.water_max_age_seconds * 1000;
+        waterState = { mode: "frozen", status: "loading", checked_at: null };
+        waterUpdatesStarted = true;
+        await pollWater();
+        return;
+      }
       if (!["live", "snapshot"].includes(config.water_updates)) throw new Error("Invalid water-update configuration.");
       if (config.water_updates !== "live") {
         if (config.mode === "design") {
@@ -276,7 +290,10 @@
       if (Number.isFinite(config.water_refresh_seconds) && config.water_refresh_seconds > 0) waterRefreshSeconds = config.water_refresh_seconds;
       if (Number.isFinite(config.water_max_age_seconds) && config.water_max_age_seconds > 0) waterMaxAgeMs = config.water_max_age_seconds * 1000;
     } catch (error) {
-      setTimeout(initializeWaterUpdates, WATER_POLL_MS);
+      if (DashboardData.isFrozen) {
+        waterState = { mode: "frozen", status: "unavailable", checked_at: null };
+        showScene(sceneIndex);
+      } else setTimeout(initializeWaterUpdates, WATER_POLL_MS);
       return; // Keep water empty until the server confirms its update mode.
     }
     waterState = { mode: "live", status: "saved", checked_at: manifest.water_source?.captured_at,
@@ -365,6 +382,8 @@
 
   function restartTimer() {
     if (timer !== null) clearInterval(timer);
+    timer = null;
+    if (DashboardData.isFrozen) return;
     timer = setInterval(() => showScene((sceneIndex + 1) % manifest.scenes.length), ROTATION_MS);
   }
 
@@ -407,7 +426,7 @@
       visiblePointCount: sceneIndex >= 0 ? visiblePoints(manifest.scenes[sceneIndex]).length : 0,
       displayViewBox: manifest ? [...displayViewBox()] : null,
       visibleGroups: groups.filter((group) => group.getAttribute("display") !== "none").length,
-      totalScenes: manifest?.scenes.length || 0, rotationMs: ROTATION_MS, error: errorMessage,
+      totalScenes: manifest?.scenes.length || 0, rotationMs: DashboardData.isFrozen ? 0 : ROTATION_MS, error: errorMessage,
       water: { ...waterState },
     };
   }
@@ -420,7 +439,7 @@
       // Saved fountain positions are a design preview, never a live fallback.
       savedWaterPoints = manifest.scenes[0].points;
       manifest.scenes[0] = { ...manifest.scenes[0], points: [] };
-      waterState = { mode: "live", status: "loading", checked_at: null };
+      waterState = { mode: DashboardData.isFrozen ? "frozen" : "live", status: "loading", checked_at: null };
       const assets = new Set([assetUrl(manifest.background),
         ...manifest.scenes.map(scene => assetUrl(iconFile(scene))),
         ...manifest.scenes.flatMap(scene => scene.points.map(point => assetUrl(markerIconFile(scene, point)))),
@@ -466,11 +485,13 @@
       updateViewport();
       showScene(0);
       restartTimer();
-      setInterval(expireLiveWater, WATER_EXPIRY_MS);
-      document.addEventListener("visibilitychange", recoverVisibleWater);
-      window.addEventListener("focus", recoverVisibleWater);
-      window.addEventListener("pageshow", recoverVisibleWater);
-      window.addEventListener("online", recoverVisibleWater);
+      if (!DashboardData.isFrozen) {
+        setInterval(expireLiveWater, WATER_EXPIRY_MS);
+        document.addEventListener("visibilitychange", recoverVisibleWater);
+        window.addEventListener("focus", recoverVisibleWater);
+        window.addEventListener("pageshow", recoverVisibleWater);
+        window.addEventListener("online", recoverVisibleWater);
+      }
       new ResizeObserver(updateViewport).observe(frame);
       initializeWaterUpdates();
       window.MapTemperature?.initialize({
